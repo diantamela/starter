@@ -1,0 +1,16 @@
+# dependencies
+node_modules/
+
+# build / output
+dist/
+build/
+out/
+coverage/
+
+# environment
+.env
+
+# media files
+*.jpg
+*.png
+*.pdf
