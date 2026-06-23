@@ -15,9 +15,10 @@ form.addEventListener('submit', async function (e) {
 
   // 2. Kosongkan input
   input.value = '';
+  input.focus();
 
   // 3. Tampilkan pesan "Thinking..." sementara
-  const thinkingEl = appendMessage('bot', 'Thinking...');
+  const thinkingEl = appendMessage('bot', 'Thinking...', true);
 
   // 4. Nonaktifkan tombol submit selama request
   const submitBtn = form.querySelector('button[type="submit"]');
@@ -45,25 +46,34 @@ form.addEventListener('submit', async function (e) {
 
     if (reply) {
       // Ganti "Thinking..." dengan reply asli
-      thinkingEl.textContent = reply;
+      thinkingEl.querySelector('.message-content').textContent = reply;
+      thinkingEl.classList.remove('thinking');
       messageHistory.push({ role: 'model', text: reply });
     } else {
-      thinkingEl.textContent = 'Sorry, no response received.';
+      thinkingEl.querySelector('.message-content').textContent = 'Sorry, no response received.';
+      thinkingEl.classList.remove('thinking');
     }
   } catch (err) {
     console.error('Chat request failed:', err);
-    thinkingEl.textContent = 'Failed to get response from server.';
+    thinkingEl.querySelector('.message-content').textContent = 'Failed to get response from server.';
+    thinkingEl.classList.remove('thinking');
   } finally {
     submitBtn.disabled = false;
     input.focus();
   }
 });
 
-function appendMessage(sender, text) {
-  const msg = document.createElement('div');
-  msg.classList.add('message', sender);
-  msg.textContent = text;
-  chatBox.appendChild(msg);
+function appendMessage(sender, text, isThinking = false) {
+  const msgWrapper = document.createElement('div');
+  msgWrapper.classList.add('message', sender);
+  if (isThinking) msgWrapper.classList.add('thinking');
+
+  const msgContent = document.createElement('div');
+  msgContent.classList.add('message-content');
+  msgContent.textContent = text;
+
+  msgWrapper.appendChild(msgContent);
+  chatBox.appendChild(msgWrapper);
   chatBox.scrollTop = chatBox.scrollHeight;
-  return msg;
+  return msgWrapper;
 }

@@ -4,14 +4,40 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Gemini AI Chatbot</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
-    <div id="chat-box"></div>
-    <form id="chat-form">
-        <input type="text" id="user-input" autocomplete="off" placeholder="Type your message..." style="width: 80%;" />
-        <button type="submit">Send</button>
-    </form>
+    <div class="chat-container">
+      <div class="chat-header">
+        <div class="header-content">
+          <div class="header-icon">
+            <i class="fas fa-robot"></i>
+          </div>
+          <div>
+            <h1>Gemini AI</h1>
+            <p class="status-text">Online</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="chat-box" class="chat-box"></div>
+
+      <form id="chat-form" class="chat-form">
+        <div class="input-wrapper">
+          <input 
+            type="text" 
+            id="user-input" 
+            autocomplete="off" 
+            placeholder="Ask me anything..." 
+            class="chat-input"
+          />
+          <button type="submit" class="send-btn" title="Send message">
+            <i class="fas fa-paper-plane"></i>
+          </button>
+        </div>
+      </form>
+    </div>
 
     <script src="script.js"></script>
 </body>

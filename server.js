@@ -39,11 +39,23 @@ async function getAccessToken() {
   }
 }
 
-function normalizeGeminiMessage(message) {
+function isPublicGeminiApi() {
+  // Public Gemini API is detected when genericEndpoint is set (includes generativelanguage.googleapis.com)
+  return genericEndpoint && genericEndpoint.includes('generativelanguage.googleapis.com');
+}
+
+function normalizeGeminiMessage(message, isPublic = false) {
   const role = String(message?.role || '').toLowerCase();
   const text = String(message?.content ?? message?.message ?? message?.text ?? '').trim();
   if (!text) return null;
 
+  if (isPublic) {
+    // Public Gemini API uses 'user' and 'model' roles
+    const publicRole = role === 'assistant' || role === 'model' ? 'model' : 'user';
+    return { role: publicRole, parts: [{ text }] };
+  }
+
+  // Vertex AI uses 'USER', 'ASSISTANT', 'SYSTEM' roles
   const geminiRole = role === 'assistant' ? 'ASSISTANT'
     : role === 'system' ? 'SYSTEM'
     : 'USER';
@@ -51,9 +63,49 @@ function normalizeGeminiMessage(message) {
   return { role: geminiRole, parts: [text] };
 }
 
-function extractReply(data) {
+function buildPublicGeminiPayload(messages, systemInstruction, temperature) {
+  // Convert messages to public API format
+  const contents = messages
+    .map(msg => normalizeGeminiMessage(msg, true))
+    .filter(Boolean);
+
+  return {
+    contents,
+    generationConfig: {
+      temperature,
+      maxOutputTokens: 512
+    },
+    systemInstruction: {
+      parts: [{ text: systemInstruction }]
+    }
+  };
+}
+
+function buildVertexAiPayload(messages, systemInstruction, temperature) {
+  // Vertex AI format
+  return {
+    instances: [{ content: messages }],
+    parameters: {
+      temperature,
+      maxOutputTokens: 512,
+      systemInstruction
+    }
+  };
+}
+
+function extractReply(data, isPublic = false) {
   if (!data) return '';
   if (typeof data === 'string') return data;
+
+  // Public Gemini API format
+  if (isPublic && Array.isArray(data.candidates) && data.candidates.length > 0) {
+    const candidate = data.candidates[0];
+    if (candidate.content && Array.isArray(candidate.content.parts) && candidate.content.parts.length > 0) {
+      return candidate.content.parts[0].text || '';
+    }
+  }
+
+  // Vertex AI format
   if (Array.isArray(data.predictions) && data.predictions.length > 0) {
     const prediction = data.predictions[0];
     if (typeof prediction === 'string') return prediction;
@@ -98,26 +150,31 @@ app.post('/api/chat', async (req, res) => {
     'You are Gemini, a helpful AI assistant. Answer naturally and keep responses concise and relevant.';
   const temperature = Number(process.env.GEMINI_TEMPERATURE ?? 0.2);
 
-  const geminiMessages = [
-    { role: 'SYSTEM', parts: [systemInstruction] },
-    ...messages
-      .map(normalizeGeminiMessage)
-      .filter(Boolean)
-  ];
+  const isPublic = isPublicGeminiApi();
 
-  if (geminiMessages.length === 1) {
-    return res.status(400).json({ error: 'Messages array must contain at least one valid message.' });
-  }
+  // Filter out system messages for public API
+  const conversationMessages = isPublic
+    ? messages.filter(m => String(m?.role || '').toLowerCase() !== 'system')
+    : messages;
 
   try {
-    const payload = {
-      instances: [{ content: geminiMessages }],
-      parameters: {
-        temperature,
-        maxOutputTokens: 512,
-        systemInstruction
+    let payload;
+    if (isPublic) {
+      payload = buildPublicGeminiPayload(conversationMessages, systemInstruction, temperature);
+    } else {
+      const geminiMessages = [
+        { role: 'SYSTEM', parts: [systemInstruction] },
+        ...conversationMessages
+          .map(msg => normalizeGeminiMessage(msg, false))
+          .filter(Boolean)
+      ];
+
+      if (geminiMessages.length === 1) {
+        return res.status(400).json({ error: 'Messages array must contain at least one valid message.' });
       }
-    };
+
+      payload = buildVertexAiPayload(geminiMessages, systemInstruction, temperature);
+    }
 
     const requestUrl = getApiEndpoint();
     if (!requestUrl) {
@@ -142,7 +199,7 @@ app.post('/api/chat', async (req, res) => {
         return res.status(500).json({ error: 'Gemini API error', details: result });
       }
 
-      const reply = extractReply(result);
+      const reply = extractReply(result, isPublic);
       return res.json({ result: reply });
     }
 
@@ -160,7 +217,7 @@ app.post('/api/chat', async (req, res) => {
       return res.status(500).json({ error: 'Gemini API error', details: result });
     }
 
-    const reply = extractReply(result);
+    const reply = extractReply(result, isPublic);
     return res.json({ result: reply });
   } catch (error) {
     console.error('Gemini /api/chat failure:', error);
@@ -175,16 +232,36 @@ app.post('/chat', async (req, res) => {
   }
 
   try {
-    const userPrompt = `You are Gemini, a helpful AI assistant. Answer naturally and keep the response relevant to the user's question.\nUser: ${message}\nAssistant:`;
-    const payload = {
-      instances: [
-        { content: userPrompt }
-      ],
-      parameters: {
-        temperature: 0.2,
-        maxOutputTokens: 512
-      }
-    };
+    const isPublic = isPublicGeminiApi();
+    const systemInstruction = 'You are Gemini, a helpful AI assistant. Answer naturally and keep the response relevant to the user\'s question.';
+
+    let payload;
+    if (isPublic) {
+      // Public Gemini API format
+      payload = {
+        contents: [
+          { role: 'user', parts: [{ text: message }] }
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 512
+        },
+        systemInstruction: {
+          parts: [{ text: systemInstruction }]
+        }
+      };
+    } else {
+      // Vertex AI format
+      payload = {
+        instances: [
+          { content: message }
+        ],
+        parameters: {
+          temperature: 0.2,
+          maxOutputTokens: 512
+        }
+      };
+    }
 
     const requestUrl = getApiEndpoint();
     if (!requestUrl) {
@@ -212,7 +289,7 @@ app.post('/chat', async (req, res) => {
         });
       }
 
-      const reply = extractReply(result);
+      const reply = extractReply(result, isPublic);
       return res.json({ reply });
     }
 
@@ -233,7 +310,7 @@ app.post('/chat', async (req, res) => {
       });
     }
 
-    const reply = extractReply(result);
+    const reply = extractReply(result, isPublic);
     return res.json({ reply });
   } catch (error) {
     console.error('Chat endpoint failure:', error);
